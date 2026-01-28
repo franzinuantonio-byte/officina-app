@@ -4,7 +4,6 @@ from datetime import datetime, date
 import time
 import gspread
 import json
-import os
 
 # --- 1. CONFIGURAZIONE ---
 st.set_page_config(page_title="Gestione Diemmeauto Cloud", layout="wide")
@@ -18,23 +17,17 @@ SHEET_STORICO = "Storico"
 SHEET_AGENDA = "Agenda"
 LISTA_OPERATORI = ["Antonio", "Simone", "Mauro"]
 
-# --- 2. CONNESSIONE ROBUSTA (FIX AUTOMATICO) ---
+# --- 2. CONNESSIONE UNIVERSALE ---
 def get_google_sheet():
     try:
-        # CASO 1: Siamo su Streamlit Cloud (usiamo i Secrets)
-        if "gcp_service_account" in st.secrets:
-            creds_dict = dict(st.secrets["gcp_service_account"])
-            
-            # --- IL FIX MAGICO ---
-            # Se la chiave privata contiene \n scritti come testo, li trasforma in veri a capo
-            if "private_key" in creds_dict:
-                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            # ---------------------
-            
-            gc = gspread.service_account_from_dict(creds_dict)
+        # PRIMO TENTATIVO: Cerca il "file intero" nei segreti (Cloud)
+        if "file_json_completo" in st.secrets:
+            # Legge tutto il blocco di testo e lo converte in credenziali
+            contenuto_chiave = json.loads(st.secrets["file_json_completo"])
+            gc = gspread.service_account_from_dict(contenuto_chiave)
             return gc.open_by_key(GOOGLE_SHEET_ID)
 
-        # CASO 2: Siamo sul Mac (usiamo il file locale)
+        # SECONDO TENTATIVO: Cerca il file fisico (Mac)
         else:
             gc = gspread.service_account(filename="chiave.json")
             return gc.open_by_key(GOOGLE_SHEET_ID)
@@ -123,9 +116,7 @@ if menu == "⏱️ Officina":
                     nuovo = {"Targa": ta, "Operatore": op, "Lavori da Eseguire": de, "Ora Ultimo Inizio": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Minuti Gia Fatti": "0", "Stato": "IN CORSO"}
                     df_in_corso = pd.concat([df_in_corso, pd.DataFrame([nuovo])], ignore_index=True)
                     salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso)
-                    st.success("Lavoro Iniziato!")
-                    time.sleep(1)
-                    st.rerun()
+                    st.success("Lavoro Iniziato!"); time.sleep(1); st.rerun()
             else: st.warning("Compila Targa e Lavori")
     st.markdown("---")
     if not df_in_corso.empty:
@@ -143,10 +134,7 @@ if menu == "⏱️ Officina":
                     except: pass
                     c3.metric("Tempo", f"{m_tot} m", "Attivo")
                     if c4.button("PAUSA ⏸️", key=f"p{i}"):
-                        df_in_corso.at[i, 'Minuti Gia Fatti'] = str(m_tot)
-                        df_in_corso.at[i, 'Stato'] = "IN PAUSA"
-                        salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso)
-                        st.rerun()
+                        df_in_corso.at[i, 'Minuti Gia Fatti'] = str(m_tot); df_in_corso.at[i, 'Stato'] = "IN PAUSA"; salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso); st.rerun()
                     if c4.button("FINITO 🏁", key=f"f{i}", type="primary"):
                         fine = datetime.now()
                         storic = {"Data": fine.strftime("%Y-%m-%d"), "Targa": r['Targa'], "Operatore": r['Operatore'], "Lavori Eseguiti": r['Lavori da Eseguire'], "Ora Inizio": "--", "Ora Fine": fine.strftime("%H:%M"), "Durata (min)": str(m_tot)}
@@ -158,10 +146,7 @@ if menu == "⏱️ Officina":
                 else:
                     c3.metric("Tempo", f"{m_tot} m", "Pausa", delta_color="off")
                     if c4.button("RIPRENDI ▶️", key=f"r{i}"):
-                        df_in_corso.at[i, 'Ora Ultimo Inizio'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        df_in_corso.at[i, 'Stato'] = "IN CORSO"
-                        salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso)
-                        st.rerun()
+                        df_in_corso.at[i, 'Ora Ultimo Inizio'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S"); df_in_corso.at[i, 'Stato'] = "IN CORSO"; salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso); st.rerun()
 elif menu == "📅 Agenda":
     st.header("📅 Agenda")
     with st.form("ag"):
