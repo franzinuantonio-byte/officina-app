@@ -17,17 +17,23 @@ SHEET_STORICO = "Storico"
 SHEET_AGENDA = "Agenda"
 LISTA_OPERATORI = ["Antonio", "Simone", "Mauro"]
 
-# --- 2. CONNESSIONE UNIVERSALE ---
+# --- 2. CONNESSIONE BLINDATA ---
 def get_google_sheet():
     try:
-        # PRIMO TENTATIVO: Cerca il "file intero" nei segreti (Cloud)
-        if "file_json_completo" in st.secrets:
-            # Legge tutto il blocco di testo e lo converte in credenziali
-            contenuto_chiave = json.loads(st.secrets["file_json_completo"])
-            gc = gspread.service_account_from_dict(contenuto_chiave)
+        # TENTATIVO 1: Streamlit Cloud (Formato TOML)
+        if "gcp_service_account" in st.secrets:
+            # Carica le credenziali come dizionario
+            creds = dict(st.secrets["gcp_service_account"])
+            
+            # --- FIX AUTOMATICO CHIAVE ---
+            # Se la chiave ha i caratteri \n scritti come testo, li converte in veri "a capo"
+            if "private_key" in creds:
+                creds["private_key"] = creds["private_key"].replace("\\n", "\n")
+            
+            gc = gspread.service_account_from_dict(creds)
             return gc.open_by_key(GOOGLE_SHEET_ID)
 
-        # SECONDO TENTATIVO: Cerca il file fisico (Mac)
+        # TENTATIVO 2: Mac (File locale)
         else:
             gc = gspread.service_account(filename="chiave.json")
             return gc.open_by_key(GOOGLE_SHEET_ID)
