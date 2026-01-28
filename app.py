@@ -9,9 +9,7 @@ import os
 # --- 1. CONFIGURAZIONE ---
 st.set_page_config(page_title="Gestione Diemmeauto Cloud", layout="wide")
 
-# ======================================================
-# 🔑 TUO ID GOOGLE SHEET
-# ======================================================
+# ID FOGLIO GOOGLE
 GOOGLE_SHEET_ID = "18Aw9zqQLSvQUy8fG1D2g67kTHa1vkIsnvTs90GaHjjM"
 
 # NOMI FOGLI
@@ -20,14 +18,19 @@ SHEET_STORICO = "Storico"
 SHEET_AGENDA = "Agenda"
 LISTA_OPERATORI = ["Antonio", "Simone", "Mauro"]
 
-# --- 2. CONNESSIONE IBRIDA (MAC + CLOUD) ---
+# --- 2. CONNESSIONE ROBUSTA (FIX AUTOMATICO) ---
 def get_google_sheet():
     try:
         # CASO 1: Siamo su Streamlit Cloud (usiamo i Secrets)
         if "gcp_service_account" in st.secrets:
-            # Creiamo un dizionario dalle credenziali segrete
             creds_dict = dict(st.secrets["gcp_service_account"])
-            # gspread vuole un file o un dizionario. Qui usiamo il dizionario.
+            
+            # --- IL FIX MAGICO ---
+            # Se la chiave privata contiene \n scritti come testo, li trasforma in veri a capo
+            if "private_key" in creds_dict:
+                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            # ---------------------
+            
             gc = gspread.service_account_from_dict(creds_dict)
             return gc.open_by_key(GOOGLE_SHEET_ID)
 
@@ -76,17 +79,19 @@ def add_bg():
     <style>
     .stApp { background-image: url("https://images.unsplash.com/photo-1530046339160-ce3e4234721f?q=80&w=1920&auto=format&fit=crop"); background-attachment: fixed; background-size: cover; }
     [data-testid="stExpander"], [data-testid="stForm"], [data-testid="stContainer"] { background-color: rgba(255, 255, 255, 0.95) !important; border-radius: 12px; padding: 15px; }
-    h1, h2, h3 { text-shadow: 1px 1px 2px white; }
     </style>
     """, unsafe_allow_html=True)
 add_bg()
 st.title("☁️ Diemmeauto - Gestionale")
+
 col_in_corso = ["Targa", "Operatore", "Lavori da Eseguire", "Ora Ultimo Inizio", "Minuti Gia Fatti", "Stato"]
 col_storico = ["Data", "Targa", "Operatore", "Lavori Eseguiti", "Ora Inizio", "Ora Fine", "Durata (min)"]
 col_agenda = ["Data", "Ora", "Targa", "Lavoro", "Scaffale Ricambi", "Tempo Stimato (h)"]
+
 df_in_corso = carica_dati(SHEET_LAVORI, col_in_corso)
 df_storico = carica_dati(SHEET_STORICO, col_storico)
 df_agenda = carica_dati(SHEET_AGENDA, col_agenda)
+
 menu = st.sidebar.radio("📌 Menu", ["⏱️ Officina", "📅 Agenda", "📊 Admin"])
 
 if menu == "⏱️ Officina":
