@@ -15,6 +15,8 @@ GOOGLE_SHEET_ID = "18Aw9zqQLSvQUy8fG1D2g67kTHa1vkIsnvTs90GaHjjM"
 SHEET_LAVORI = "Lavori_In_Corso"
 SHEET_STORICO = "Storico"
 SHEET_AGENDA = "Agenda"
+
+# LISTA MECCANICI (Modificala qui se serve)
 LISTA_OPERATORI = ["Antonio", "Simone", "Mauro"]
 
 # --- 2. CONNESSIONE BLINDATA ---
@@ -22,11 +24,9 @@ def get_google_sheet():
     try:
         # TENTATIVO 1: Streamlit Cloud (Formato TOML)
         if "gcp_service_account" in st.secrets:
-            # Carica le credenziali come dizionario
             creds = dict(st.secrets["gcp_service_account"])
             
-            # --- FIX AUTOMATICO CHIAVE ---
-            # Se la chiave ha i caratteri \n scritti come testo, li converte in veri "a capo"
+            # FIX AUTOMATICO CHIAVE: converte \n testuali in veri a capo
             if "private_key" in creds:
                 creds["private_key"] = creds["private_key"].replace("\\n", "\n")
             
@@ -91,8 +91,10 @@ df_in_corso = carica_dati(SHEET_LAVORI, col_in_corso)
 df_storico = carica_dati(SHEET_STORICO, col_storico)
 df_agenda = carica_dati(SHEET_AGENDA, col_agenda)
 
+# MENU LATERALE
 menu = st.sidebar.radio("📌 Menu", ["⏱️ Officina", "📅 Agenda", "📊 Admin"])
 
+# --- SEZIONE 1: OFFICINA ---
 if menu == "⏱️ Officina":
     st.header("🟢 Inizia Lavoro")
     oggi = date.today().strftime("%Y-%m-%d")
@@ -122,88 +124,3 @@ if menu == "⏱️ Officina":
                     nuovo = {"Targa": ta, "Operatore": op, "Lavori da Eseguire": de, "Ora Ultimo Inizio": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Minuti Gia Fatti": "0", "Stato": "IN CORSO"}
                     df_in_corso = pd.concat([df_in_corso, pd.DataFrame([nuovo])], ignore_index=True)
                     salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso)
-                    st.success("Lavoro Iniziato!"); time.sleep(1); st.rerun()
-            else: st.warning("Compila Targa e Lavori")
-    st.markdown("---")
-    if not df_in_corso.empty:
-        for i, r in df_in_corso.iterrows():
-            with st.container():
-                c1, c2, c3, c4 = st.columns([1, 2, 2, 3])
-                c1.write(f"**{r['Operatore']}**")
-                c2.write(f"🚗 {r['Targa']}")
-                try: m_tot = int(float(str(r['Minuti Gia Fatti']).replace(',', '.')))
-                except: m_tot = 0
-                if r['Stato'] == "IN CORSO":
-                    try:
-                        start = datetime.strptime(str(r['Ora Ultimo Inizio']), "%Y-%m-%d %H:%M:%S")
-                        m_tot += int((datetime.now() - start).total_seconds() / 60)
-                    except: pass
-                    c3.metric("Tempo", f"{m_tot} m", "Attivo")
-                    if c4.button("PAUSA ⏸️", key=f"p{i}"):
-                        df_in_corso.at[i, 'Minuti Gia Fatti'] = str(m_tot); df_in_corso.at[i, 'Stato'] = "IN PAUSA"; salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso); st.rerun()
-                    if c4.button("FINITO 🏁", key=f"f{i}", type="primary"):
-                        fine = datetime.now()
-                        storic = {"Data": fine.strftime("%Y-%m-%d"), "Targa": r['Targa'], "Operatore": r['Operatore'], "Lavori Eseguiti": r['Lavori da Eseguire'], "Ora Inizio": "--", "Ora Fine": fine.strftime("%H:%M"), "Durata (min)": str(m_tot)}
-                        df_storico = pd.concat([df_storico, pd.DataFrame([storic])], ignore_index=True)
-                        salva_dati(df_storico, SHEET_STORICO, col_storico)
-                        df_in_corso = df_in_corso.drop(i)
-                        salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso)
-                        st.rerun()
-                else:
-                    c3.metric("Tempo", f"{m_tot} m", "Pausa", delta_color="off")
-                    if c4.button("RIPRENDI ▶️", key=f"r{i}"):
-                        df_in_corso.at[i, 'Ora Ultimo Inizio'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S"); df_in_corso.at[i, 'Stato'] = "IN CORSO"; salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso); st.rerun()
-elif menu == "📊 Admin":
-    pwd = st.sidebar.text_input("Password", type="password")
-    if pwd == "admin":  # Sostituisci "admin" con la password che vuoi
-        st.header("📊 Resoconto Officina")
-
-        if not df_storico.empty:
-            # --- 1. CALCOLO ORE TOTALI PER DIPENDENTE ---
-            st.subheader("🏆 Ore Totali per Dipendente")
-            
-            # Convertiamo la colonna 'Durata (min)' in numeri (per sicurezza)
-            df_calcolo = df_storico.copy()
-            df_calcolo['Durata (min)'] = pd.to_numeric(df_calcolo['Durata (min)'], errors='coerce').fillna(0)
-
-            # Raggruppiamo per Operatore e sommiamo i minuti
-            resoconto = df_calcolo.groupby('Operatore')['Durata (min)'].sum().reset_index()
-            
-            # Creiamo una colonna carina "Ore e Minuti" (es: 5h 30m)
-            resoconto['Tempo Totale'] = resoconto['Durata (min)'].apply(lambda x: f"{int(x//60)}h {int(x%60)}m")
-            
-            # Ordiniamo dal più stacanovista in giù
-            resoconto = resoconto.sort_values(by='Durata (min)', ascending=False)
-
-            # Mostriamo due colonne: Grafico e Tabella
-            col_graph, col_tab = st.columns([2, 1])
-            
-            with col_graph:
-                # Grafico a barre
-                st.bar_chart(resoconto.set_index('Operatore')['Durata (min)'], color="#FF4B4B")
-            
-            with col_tab:
-                # Tabella riassuntiva
-                st.dataframe(resoconto[['Operatore', 'Tempo Totale']], hide_index=True, use_container_width=True)
-
-            st.markdown("---")
-
-            # --- 2. DETTAGLIO STORICO LAVORI ---
-            st.subheader("📜 Storico Dettagliato")
-            # Filtri per la ricerca
-            search_op = st.multiselect("Filtra per Operatore", LISTA_OPERATORI)
-            if search_op:
-                df_filtrato = df_storico[df_storico['Operatore'].isin(search_op)]
-            else:
-                df_filtrato = df_storico
-            
-            st.dataframe(df_filtrato, use_container_width=True)
-            
-            # Bottone Download
-            csv = df_filtrato.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Scarica Report Excel/CSV", csv, "report_officina.csv", "text/csv")
-        
-        else:
-            st.info("Nessun lavoro completato in storico.")
-    elif pwd:
-        st.error("Password errata")
