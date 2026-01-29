@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import time
 import gspread
 import json
+import os
+from streamlit_calendar import calendar  # Importiamo il calendario
 
 # --- 1. CONFIGURAZIONE ---
-st.set_page_config(page_title="Gestione Diemmeauto Cloud", layout="wide")
+st.set_page_config(page_title="Gestione Diemmeauto Cloud", layout="wide", page_icon="🔧")
 
 # ID FOGLIO GOOGLE
 GOOGLE_SHEET_ID = "18Aw9zqQLSvQUy8fG1D2g67kTHa1vkIsnvTs90GaHjjM"
@@ -75,6 +77,7 @@ def add_bg():
     </style>
     """, unsafe_allow_html=True)
 add_bg()
+
 st.title("☁️ Diemmeauto - Gestionale")
 
 col_in_corso = ["Targa", "Operatore", "Lavori da Eseguire", "Ora Ultimo Inizio", "Minuti Gia Fatti", "Stato"]
@@ -85,7 +88,17 @@ df_in_corso = carica_dati(SHEET_LAVORI, col_in_corso)
 df_storico = carica_dati(SHEET_STORICO, col_storico)
 df_agenda = carica_dati(SHEET_AGENDA, col_agenda)
 
-menu = st.sidebar.radio("📌 Menu", ["⏱️ Officina", "📅 Agenda", "📊 Admin"])
+# --- MENU LATERALE ---
+with st.sidebar:
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=200)
+    elif os.path.exists("logo.jpg"):
+        st.image("logo.jpg", width=200)
+    else:
+        st.image("https://cdn-icons-png.flaticon.com/512/1048/1048339.png", width=150)
+    
+    st.write("---")
+    menu = st.radio("📌 Menu", ["⏱️ Officina", "📅 Agenda", "📊 Admin"])
 
 # --- MENU 1: OFFICINA ---
 if menu == "⏱️ Officina":
@@ -185,43 +198,93 @@ if menu == "⏱️ Officina":
                         salva_dati(df_in_corso, SHEET_LAVORI, col_in_corso)
                         st.rerun()
 
-# --- MENU 2: AGENDA ---
+# --- MENU 2: AGENDA (CON CALENDARIO VISIVO) ---
 elif menu == "📅 Agenda":
-    st.header("📅 Agenda")
-    with st.form("ag"):
-        c1, c2 = st.columns(2)
-        d = c1.date_input("Data", value=date.today())
-        o = c1.time_input("Ora")
-        t = c1.text_input("Targa").upper()
-        l = c2.text_input("Lavoro")
-        s = c2.text_input("Scaffale")
-        
-        if st.form_submit_button("Salva Appuntamento"):
-            if t and l:
-                nuovo_app = {
-                    "Data": str(d), 
-                    "Ora": str(o), 
-                    "Targa": t, 
-                    "Lavoro": l, 
-                    "Scaffale Ricambi": s, 
-                    "Tempo Stimato (h)": "0"
-                }
-                df_agenda = pd.concat([df_agenda, pd.DataFrame([nuovo_app])], ignore_index=True)
-                df_agenda = df_agenda.sort_values(["Data", "Ora"])
-                salva_dati(df_agenda, SHEET_AGENDA, col_agenda)
-                st.success("Salvato!")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.warning("Dati mancanti")
+    st.header("📅 Agenda Officina")
+    
+    # Sezione Aggiungi Appuntamento
+    with st.expander("➕ Aggiungi Nuovo Appuntamento", expanded=True):
+        with st.form("ag"):
+            c1, c2 = st.columns(2)
+            d = c1.date_input("Data", value=date.today())
+            o = c1.time_input("Ora")
+            t = c1.text_input("Targa").upper()
+            l = c2.text_input("Lavoro")
+            s = c2.text_input("Scaffale Ricambi")
+            
+            if st.form_submit_button("Salva Appuntamento"):
+                if t and l:
+                    nuovo_app = {
+                        "Data": str(d), 
+                        "Ora": str(o), 
+                        "Targa": t, 
+                        "Lavoro": l, 
+                        "Scaffale Ricambi": s, 
+                        "Tempo Stimato (h)": "0"
+                    }
+                    df_agenda = pd.concat([df_agenda, pd.DataFrame([nuovo_app])], ignore_index=True)
+                    salva_dati(df_agenda, SHEET_AGENDA, col_agenda)
+                    st.success("Salvato!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("Compila Targa e Lavori")
+
+    # VISUALIZZAZIONE CALENDARIO
+    if not df_agenda.empty:
+        # Prepariamo gli eventi per il calendario
+        events = []
+        for index, row in df_agenda.iterrows():
+            try:
+                # Creiamo data e ora di inizio
+                # Aggiungiamo T e i secondi se mancano per renderlo compatibile ISO
+                ora_clean = str(row['Ora']).strip()
+                if len(ora_clean) == 5: ora_clean += ":00"
+                start_str = f"{row['Data']}T{ora_clean}"
                 
-    if not df_agenda.empty: 
-        st.dataframe(df_agenda, use_container_width=True)
-        if st.button("🗑️ Svuota Agenda"):
-            salva_dati(pd.DataFrame(columns=col_agenda), SHEET_AGENDA, col_agenda)
-            st.rerun()
+                # Titolo che appare sul calendario
+                titolo = f"{row['Targa']} - {row['Lavoro']}"
+                if row['Scaffale Ricambi']:
+                    titolo += f" (Scaffale: {row['Scaffale Ricambi']})"
+                
+                events.append({
+                    "title": titolo,
+                    "start": start_str,
+                    "backgroundColor": "#FF4B4B" if str(row['Ora']) < "13:00" else "#3182CE",
+                    "borderColor": "#FF4B4B" if str(row['Ora']) < "13:00" else "#3182CE"
+                })
+            except:
+                continue
+
+        # Configurazione del Calendario
+        calendar_options = {
+            "headerToolbar": {
+                "left": "today prev,next",
+                "center": "title",
+                "right": "dayGridMonth,timeGridWeek,timeGridDay"
+            },
+            "initialView": "dayGridMonth",
+            "slotMinTime": "08:00:00",
+            "slotMaxTime": "19:00:00",
+            "height": "600px",
+        }
+        
+        st.write("---")
+        # Disegna il calendario
+        try:
+            calendar(events=events, options=calendar_options)
+        except Exception as e:
+            st.error(f"Errore caricamento calendario: {e}")
+        
+        # Sotto il calendario lasciamo la tabella per gestire cancellazioni
+        st.write("---")
+        with st.expander("🗑️ Gestisci / Cancella Appuntamenti"):
+            st.dataframe(df_agenda, use_container_width=True)
+            if st.button("🗑️ Svuota Tutta l'Agenda"):
+                salva_dati(pd.DataFrame(columns=col_agenda), SHEET_AGENDA, col_agenda)
+                st.rerun()
     else:
-        st.info("Agenda vuota.")
+        st.info("Agenda vuota. Aggiungi il primo appuntamento!")
 
 # --- MENU 3: ADMIN ---
 elif menu == "📊 Admin":
@@ -231,21 +294,15 @@ elif menu == "📊 Admin":
         st.header("📊 Resoconto Officina")
 
         if not df_storico.empty:
-            # --- 1. Resoconto Ore ---
             st.subheader("🏆 Ore Totali per Dipendente")
             
             df_calcolo = df_storico.copy()
-            # Pulizia dati: converte la durata in numeri, gestisce errori
             df_calcolo['Durata (min)'] = pd.to_numeric(df_calcolo['Durata (min)'], errors='coerce').fillna(0)
 
-            # Raggruppamento
             resoconto = df_calcolo.groupby('Operatore')['Durata (min)'].sum().reset_index()
-            
-            # Formattazione "Xh Ym"
             resoconto['Tempo Totale'] = resoconto['Durata (min)'].apply(lambda x: f"{int(x//60)}h {int(x%60)}m")
             resoconto = resoconto.sort_values(by='Durata (min)', ascending=False)
 
-            # Visualizzazione
             c_graph, c_tab = st.columns([2, 1])
             with c_graph:
                 st.bar_chart(resoconto.set_index('Operatore')['Durata (min)'], color="#FF4B4B")
@@ -254,9 +311,7 @@ elif menu == "📊 Admin":
 
             st.markdown("---")
 
-            # --- 2. Storico Completo ---
             st.subheader("📜 Storico Dettagliato")
-            
             filtro_op = st.multiselect("Filtra per Operatore", LISTA_OPERATORI)
             if filtro_op:
                 df_vis = df_storico[df_storico['Operatore'].isin(filtro_op)]
@@ -264,7 +319,6 @@ elif menu == "📊 Admin":
                 df_vis = df_storico
             
             st.dataframe(df_vis, use_container_width=True)
-            
             csv = df_vis.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Scarica CSV", csv, "report.csv", "text/csv")
             
